@@ -18,6 +18,7 @@
 */
 package org.apache.cordova.engine;
 
+import android.text.TextUtils;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -285,7 +286,9 @@ public class SystemWebChromeClient extends WebChromeClient {
         if (validMimeTypes.isEmpty()) {
             intent.setType(DEFAULT_MIME_TYPE);
         } else {
-            intent.setType(String.join(" ", validMimeTypes));
+            String validMimeTypesAsString = TextUtils.join(" ", validMimeTypes);
+            LOG.d(LOG_TAG, "'validMimeTypes' as string: " + validMimeTypesAsString);
+            intent.setType(validMimeTypesAsString);
         }
         try {
             parentEngine.cordova.startActivityForResult(new CordovaPlugin() {
