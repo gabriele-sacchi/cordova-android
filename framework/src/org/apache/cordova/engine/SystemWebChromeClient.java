@@ -18,10 +18,14 @@
 */
 package org.apache.cordova.engine;
 
+import android.database.Cursor;
+import android.provider.OpenableColumns;
 import android.text.TextUtils;
+
 import java.util.List;
 import java.util.ArrayList;
 import java.util.Arrays;
+
 import android.annotation.TargetApi;
 import android.app.Activity;
 import android.content.Context;
@@ -85,7 +89,8 @@ public class SystemWebChromeClient extends WebChromeClient {
     @Override
     public boolean onJsAlert(WebView view, String url, String message, final JsResult result) {
         dialogsHelper.showAlert(message, new CordovaDialogsHelper.Result() {
-            @Override public void gotResult(boolean success, String value) {
+            @Override
+            public void gotResult(boolean success, String value) {
                 if (success) {
                     result.confirm();
                 } else {
@@ -155,12 +160,10 @@ public class SystemWebChromeClient extends WebChromeClient {
         quotaUpdater.updateQuota(MAX_QUOTA);
     }
 
-    @Override
-    public boolean onConsoleMessage(ConsoleMessage consoleMessage)
-    {
+    @Override public boolean onConsoleMessage(ConsoleMessage consoleMessage) {
         if (consoleMessage.message() != null)
-            LOG.d(LOG_TAG, "%s: Line %d : %s" , consoleMessage.sourceId() , consoleMessage.lineNumber(), consoleMessage.message());
-         return super.onConsoleMessage(consoleMessage);
+            LOG.d(LOG_TAG, "%s: Line %d : %s", consoleMessage.sourceId(), consoleMessage.lineNumber(), consoleMessage.message());
+        return super.onConsoleMessage(consoleMessage);
     }
 
     @Override
@@ -177,11 +180,9 @@ public class SystemWebChromeClient extends WebChromeClient {
         callback.invoke(origin, true, false);
         //Get the plugin, it should be loaded
         CordovaPlugin geolocation = parentEngine.pluginManager.getPlugin("Geolocation");
-        if(geolocation != null && !geolocation.hasPermisssion())
-        {
+        if (geolocation != null && !geolocation.hasPermisssion()) {
             geolocation.requestPermissions(0);
         }
-
     }
 
     // API level 7 is required for this, see if we could lower this using something else
@@ -204,7 +205,6 @@ public class SystemWebChromeClient extends WebChromeClient {
      * @return View The progress view.
      */
     public View getVideoLoadingProgressView() {
-
         if (mVideoProgressView == null) {
             // Create a new Loading view programmatically.
 
@@ -223,7 +223,7 @@ public class SystemWebChromeClient extends WebChromeClient {
 
             mVideoProgressView = layout;
         }
-    return mVideoProgressView;
+        return mVideoProgressView;
     }
 
     // <input type=file> support:
@@ -233,12 +233,11 @@ public class SystemWebChromeClient extends WebChromeClient {
         this.openFileChooser(uploadMsg, "*/*");
     }
 
-    public void openFileChooser( ValueCallback<Uri> uploadMsg, String acceptType ) {
+    public void openFileChooser(ValueCallback<Uri> uploadMsg, String acceptType) {
         this.openFileChooser(uploadMsg, acceptType, null);
     }
 
-    public void openFileChooser(final ValueCallback<Uri> uploadMsg, String acceptType, String capture)
-    {
+    public void openFileChooser(final ValueCallback<Uri> uploadMsg, String acceptType, String capture) {
         Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
         intent.addCategory(Intent.CATEGORY_OPENABLE);
         intent.setType("*/*");
@@ -250,6 +249,61 @@ public class SystemWebChromeClient extends WebChromeClient {
                 uploadMsg.onReceiveValue(result);
             }
         }, intent, FILECHOOSER_RESULTCODE);
+    }
+
+    @TargetApi(Build.VERSION_CODES.LOLLIPOP)
+    @Override
+    public boolean onShowFileChooser(WebView webView, final ValueCallback<Uri[]> filePathsCallback, final WebChromeClient.FileChooserParams fileChooserParams) {
+        Intent intent = fileChooserParams.createIntent();
+        List<String> validMimeTypes = extractValidMimeTypes(fileChooserParams.getAcceptTypes());
+
+        // Update with mime types
+        intent.setType(DEFAULT_MIME_TYPE);
+
+        if (!validMimeTypes.isEmpty()) {
+            // Update with additional mime types here using a String[].
+            intent.putExtra(Intent.EXTRA_MIME_TYPES, validMimeTypes.toArray());
+        }
+
+        // Only pick openable and local files. Theoretically we could pull files from google drive
+        // or other applications that have networked files, but that's unnecessary for this example.
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+
+        try {
+            parentEngine.cordova.startActivityForResult(new CordovaPlugin() {
+                @Override
+                public void onActivityResult(int requestCode, int resultCode, Intent intent) {
+                    Uri[] result = WebChromeClient.FileChooserParams.parseResult(resultCode, intent);
+
+                    String completeString = new String();
+                    ArrayList<String> fileList = new ArrayList<String>();
+                    for (Uri uri : result) {
+                        fileList.add(getFileName(uri));
+                    }
+                    completeString = TextUtils.join(", ", fileList);
+
+                    // LOG.d(LOG_TAG, "Receive file chooser URL result: " + result); // this return reference, like [Landroid.net.Uri;@4056e398, because we have list of Uri
+                    LOG.d(LOG_TAG, "Receive file chooser URL result:" + completeString); // this return readable list of files as string
+
+                    filePathsCallback.onReceiveValue(result);
+                }
+            }, intent, FILECHOOSER_RESULTCODE);
+        } catch (ActivityNotFoundException e) {
+            LOG.w("No activity found to handle file chooser intent.", e);
+            filePathsCallback.onReceiveValue(null);
+        }
+        return true;
+    }
+
+    @TargetApi(Build.VERSION_CODES.LOLLIPOP)
+    @Override
+    public void onPermissionRequest(final PermissionRequest request) {
+        LOG.d(LOG_TAG, "onPermissionRequest: " + Arrays.toString(request.getResources()));
+        request.grant(request.getResources());
+    }
+
+    public void destroyLastDialog(){
+        dialogsHelper.destroyLastDialog();
     }
 
     // Validation utility for mime types
@@ -278,42 +332,24 @@ public class SystemWebChromeClient extends WebChromeClient {
         return results;
     }
 
-    @TargetApi(Build.VERSION_CODES.LOLLIPOP)
-    @Override
-    public boolean onShowFileChooser(WebView webView, final ValueCallback<Uri[]> filePathsCallback, final WebChromeClient.FileChooserParams fileChooserParams) {
-        Intent intent = fileChooserParams.createIntent();
-        List<String> validMimeTypes = extractValidMimeTypes(fileChooserParams.getAcceptTypes());
-        if (validMimeTypes.isEmpty()) {
-            intent.setType(DEFAULT_MIME_TYPE);
-        } else {
-            String validMimeTypesAsString = TextUtils.join(" ", validMimeTypes);
-            LOG.d(LOG_TAG, "'validMimeTypes' as string: " + validMimeTypesAsString);
-            intent.setType(validMimeTypesAsString);
+    /**
+     * Obtains the file name for a URI using content resolvers. Taken from the following link
+     * https://developer.android.com/training/secure-file-sharing/retrieve-info.html#RetrieveFileInfo
+     *
+     * @param uri a uri to query
+     * @return the file name with no path
+     * @throws IllegalArgumentException if the query is null, empty, or the column doesn't exist
+     */
+    private String getFileName(Uri uri) throws IllegalArgumentException {
+        // Obtain a cursor with information regarding this uri
+        Cursor cursor = this.appContext.getContentResolver().query(uri, null, null, null, null);
+        if (cursor.getCount() <= 0) {
+            cursor.close();
+            throw new IllegalArgumentException("Can't obtain file name, cursor is empty");
         }
-        try {
-            parentEngine.cordova.startActivityForResult(new CordovaPlugin() {
-                @Override
-                public void onActivityResult(int requestCode, int resultCode, Intent intent) {
-                    Uri[] result = WebChromeClient.FileChooserParams.parseResult(resultCode, intent);
-                    LOG.d(LOG_TAG, "Receive file chooser URL: " + result);
-                    filePathsCallback.onReceiveValue(result);
-                }
-            }, intent, FILECHOOSER_RESULTCODE);
-        } catch (ActivityNotFoundException e) {
-            LOG.w("No activity found to handle file chooser intent.", e);
-            filePathsCallback.onReceiveValue(null);
-        }
-        return true;
-    }
-
-    @TargetApi(Build.VERSION_CODES.LOLLIPOP)
-    @Override
-    public void onPermissionRequest(final PermissionRequest request) {
-        LOG.d(LOG_TAG, "onPermissionRequest: " + Arrays.toString(request.getResources()));
-        request.grant(request.getResources());
-    }
-
-    public void destroyLastDialog(){
-        dialogsHelper.destroyLastDialog();
+        cursor.moveToFirst();
+        String fileName = cursor.getString(cursor.getColumnIndexOrThrow(OpenableColumns.DISPLAY_NAME));
+        cursor.close();
+        return fileName;
     }
 }
